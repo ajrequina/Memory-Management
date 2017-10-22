@@ -9,21 +9,48 @@ from sub.memory import Memory
 from sub.test import TestMain
 
 class Main(tk.Tk):
-	def __init__(self):
+	def __init__(self, algo_type="F"):
 		tk.Tk.__init__(self)
-		self.table = Table(self, rows=11, columns=6)
+		self.table = Table(self, rows=26, columns=6)
 		self.table.pack(side="top", fill="x")
 		self.memories  = []
 		self.jobs = []
+		self.free_list = []
+		self.qualified_jobs = []
+		self.occupied = []
+		self.allocated = []
+		self.max_time = 0
+		self.counter = 0
+		self.algo_type = algo_type
+		self.by_second = True
+		self.max_memory = 0
+		self.min_memory = 0
+		self.runner = None
+		self.finished = 0
+		self.throughput = 0
+		self.count_throughput = 0
+		self.storage = 0
+		self.count_storage = 0
+		self.total_storage = 0
+		self.free_list_size = 0
+		self.queue_length = 0
+		self.qualified_jobs_count = 0
+		self.count_queue_length = 0
+		self.total_queue_length = 0
 		self.tester = TestMain()
-
+		self.total_frag = 0
 		self.table.set(0, 0, "Memory Block")
-		self.table.set(0, 1, "Size")
-		self.table.set(0, 2, "Current Process")
-		self.table.set(0, 3, "Time")
-		self.table.set(0, 4, "Size")
-		self.table.set(0, 5, "Queue")
+		self.table.set(0, 1, "Current Process")
+		self.table.set(0, 2, "Time")
+		self.table.set(0, 3, "Fragmentation")
+		self.table.set(0, 4, "Job Stream")
+		self.table.set(0, 5, "Waiting Time")
 		self.read_file()
+		self.display_memory_blocks()
+		self.display_job_streams()
+		self.display_job_waiting_time()
+		self.display_memory_fragmentation()
+		self.display_memory_processes()
 
 	def read_file(self):
 		m_file = open('data/memory-block.txt')
@@ -35,19 +62,186 @@ class Main(tk.Tk):
 		for idx, line in enumerate(m_lines):
 			line = re.findall(r"[^\W\d_]+|\d+", line)
 			memory = Memory(id=(idx + 1), name=str(line[0]), size=int(line[1]))
+			if idx == 0:
+				self.max_memory = memory.size
+				self.min_memory = memory.size
+			else:
+				if memory.size > self.max_memory:
+					self.max_memory = memory.size
+				if memory.size < self.min_memory:
+					self.min_memory = memory.size
+
 			self.memories.append(memory)
+			self.free_list.append(memory)
 
 		for idx, line in enumerate(j_lines):
 			line = re.findall(r"[^\W\d_]+|\d+", line)
 			job = Job(id=(idx + 1), name=str(line[0]), time=int(line[1]), size=int(line[2]))
+			self.max_time += job.time
 			self.jobs.append(job)
+			if job.size <= self.max_memory:
+				self.qualified_jobs.append(job)
+				self.qualified_jobs_count += 1
 
-		self.tester.test_file_reading(memories=self.memories, jobs=self.jobs)
+	def display_memory_blocks(self):
+		row = 1
+		for memory in self.memories:
+			self.table.set(row, 0, memory.to_string())
+			row += 1
+
+	def display_job_streams(self):
+		row = 1
+		for job in self.jobs:
+			self.table.set(row, 4, job.to_string())
+			row += 1
+
+	def display_job_waiting_time(self):
+		row = 1
+		for job in self.jobs:
+			self.table.set(row, 5, job.get_waiting_time())
+			row += 1
+
+	def display_memory_fragmentation(self):
+		row = 1
+		for memory in self.memories:
+			self.table.set(row, 3, memory.display_fragmentation())
+			row += 1
+
+	def display_memory_processes(self):
+		row = 1
+		for memory in self.memories:
+			self.table.set(row, 1, memory.current_process())
+			self.table.set(row, 2, memory.current_process_time())
+			row += 1
+
+	def perform_evaluations(self):
+		self.calculate_throughput()
+		self.calculate_storage()
+		self.calculate_queue_length()
+
+	def calculate_throughput(self):
+		if self.finished:
+			self.throughput += (self.finished / float(self.counter))
+			self.count_throughput += 1
+
+	def calculate_storage(self):
+		self.storage = self.free_list_size / float(len(self.memories))
+		self.total_storage += self.storage
+		self.count_storage += 1
+
+	def calculate_queue_length(self):
+		self.queue_length = self.qualified_jobs_count - len(self.allocated)
+		self.total_queue_length += self.queue_length
+		self.count_queue_length += 1
+
+	def display_throughput(self):
+		if self.finished:
+			throughput = self.throughput / float(self.count_throughput)
+
+			self.table.set(26, 0, "Throughput: " + str(throughput))
+
+	def display_storage(self):
+		used = 1 - self.storage
+		unused = self.storage
+		ave = self.total_storage / float(self.count_storage)
+		ave_used = 1 - ave
+		ave_unused = ave
+		self.table.set(27, 0, "Actual Storage Util: " + str(used) + " / " + str(unused))
+		self.table.set(28, 0, "Ave Storage Util: " + str(ave_used) + " / " + str(ave_unused))
+
+	def display_queue_length(self):
+		ave = self.total_queue_length / float(self.count_queue_length)
+		self.table.set(29, 0, "Actual Waiting Queue Length: " + str(self.queue_length))
+		self.table.set(30, 0, "Ave Waiting Queue Length: " + str(ave))
+
+	def display_ave_waiting(self):
+		total = 0
+		count = 0
+		for job in self.jobs:
+			if job.waiting_time_value >= 0:
+				count += 1
+				total += job.waiting_time_value()
+
+		self.table.set(31, 0, "Ave Waiting Time: " + str(total / float(count)))
+
+	def display_ave_frag(self):
+		self.table.set(32, 0, "Ave Internal Fragmentation: " + str(self.total_frag / float(self.qualified_jobs_count)))
+
+	def reset(self):
+		self.free_list = []
+		for job in self.jobs:
+			if job.size <= self.max_memory:
+				self.qualified_jobs.append(job)
+			job.reset()
+
+		for memory in self.memories:
+			memory.process = None
+			self.free_list.append(memory)
+
+	def run(self):
+		if len(self.qualified_jobs):
+			self.free_list_size = len(self.free_list)
+			self.check_jobs()
+			self.check_memory()
+			self.sort_memory()
+			self.allocate_memory()
+			self.perform_evaluations()
+			self.update_display()
+			self.counter += 1
+			self.runner = self.after(1000, self.run)
 
 
+	def sort_memory(self):
+		if self.algo_type == "F":
+			self.free_list = sorted(self.free_list, key=lambda x: x.id, reverse=False)
+		elif self.algo_type == "B":
+			self.free_list = sorted(self.free_list, key=lambda x: x.size, reverse=False)
+		elif self.algo_type == "W":
+			self.free_list = sorted(self.free_list, key=lambda x: x.size, reverse=True)
 
+	def check_jobs(self):
+		for job in self.qualified_jobs:
+			if job.memory:
+				if job.counter > 0:
+					job.decrease_time()
+				elif job.counter == 0:
+					self.finished += 1
+					self.qualified_jobs.remove(job)
+			else:
+				job.wait()
 
+	def check_memory(self):
+		for memory in self.memories:
+			if memory.process:
+				if memory.process.counter == 0:
+					if memory not in self.free_list:
+						self.free_list.append(memory)
 
+	def allocate_memory(self):
+		for job in self.qualified_jobs:
+			if job not in self.allocated:
+				for memory in self.free_list:
+					if job.size <= memory.size:
+						memory.process = job
+						job.memory = memory
+						self.total_frag += memory.get_frag()
+						if job not in self.allocated:
+							self.allocated.append(job)
+						self.free_list.remove(memory)
+						break
+
+	def update_display(self):
+		self.display_job_waiting_time()
+		self.display_memory_fragmentation()
+		self.display_memory_processes()
+		self.display_throughput()
+		self.display_storage()
+		self.display_queue_length()
+		self.display_ave_waiting()
+		self.display_ave_frag()
+
+	def stop(self):
+		self.after_cancel(self.runner)
 
 class Table(tk.Frame):
 	def __init__(self, parent, rows=10, columns=2, num_button=1):
@@ -74,61 +268,75 @@ class Table(tk.Frame):
 		self._widgets.append(current_row)
 
 		current_row = []
-		label = tk.Label(self, text="Storage Utilization: ",
+		label = tk.Label(self, text="Actual Storage Util: ",
 						borderwidth=1, width=15, foreground="black", background="white", anchor="w")
 		label.grid(row=rows + 1, columnspan=6, sticky="nsew", padx=1, pady=1)
 		current_row.append(label)
 		self._widgets.append(current_row)
 
 		current_row = []
-		label = tk.Label(self, text="Waiting Queue Length: ",
+		label = tk.Label(self, text="Ave Storage Util: ",
 						borderwidth=1, width=15, foreground="black", background="white", anchor="w")
 		label.grid(row=rows + 2, columnspan=6, sticky="nsew", padx=1, pady=1)
 		current_row.append(label)
 		self._widgets.append(current_row)
 
 		current_row = []
-		label = tk.Label(self, text="Waiting Time in Queue: ",
+		label = tk.Label(self, text="Actual Waiting Queue Length: ",
 						borderwidth=1, width=15, foreground="black", background="white", anchor="w")
 		label.grid(row=rows + 3, columnspan=6, sticky="nsew", padx=1, pady=1)
 		current_row.append(label)
 		self._widgets.append(current_row)
 
 		current_row = []
-		label = tk.Label(self, text="Internal Fragmentation: ",
+		label = tk.Label(self, text="Ave Waiting Queue Length: ",
 						borderwidth=1, width=15, foreground="black", background="white", anchor="w")
 		label.grid(row=rows + 4, columnspan=6, sticky="nsew", padx=1, pady=1)
 		current_row.append(label)
 		self._widgets.append(current_row)
 
 		current_row = []
-		label = tk.Label(self, text="Internal Fragmentation: ",
-						borderwidth=1, width=15, foreground="#34495e", background="#34495e", anchor="w")
+		label = tk.Label(self, text="Ave Waiting Time: ",
+						borderwidth=1, width=15, foreground="black", background="white", anchor="w")
 		label.grid(row=rows + 5, columnspan=6, sticky="nsew", padx=1, pady=1)
 		current_row.append(label)
 		self._widgets.append(current_row)
 
 		current_row = []
-		button = tk.Button(self, text ="First Fit", command= lambda: self.display_results("FCFS"))
-		button.grid(row=rows + 6, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
-		current_row.append(button)
+		label = tk.Label(self, text="Ave Internal Fragmentation: ",
+						borderwidth=1, width=15, foreground="black", background="white", anchor="w")
+		label.grid(row=rows + 6, columnspan=6, sticky="nsew", padx=1, pady=1)
+		current_row.append(label)
 
-		button = tk.Button(self, text ="Best Fit", command= lambda: self.display_results("SJF"))
-		button.grid(row=rows + 6, column=2, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
-		current_row.append(button)
-
-		button = tk.Button(self, text ="Worst Fit", command=lambda: self.display_results("SRPT"))
-		button.grid(row=rows + 6, column=4, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
-		current_row.append(button)
-
+		self._widgets.append(current_row)
 		current_row = []
-		button = tk.Button(self, text ="Simulate", command= lambda: self.display_results("FCFS"))
-		button.grid(row=rows + 7, columnspan=3, sticky="nsew", padx=0.5, pady=0.5)
-		current_row.append(button)
+		label = tk.Label(self, text="",
+						borderwidth=1, width=15, foreground="#34495e", background="#34495e", anchor="w")
+		label.grid(row=rows + 7, columnspan=6, sticky="nsew", padx=1, pady=1)
+		current_row.append(label)
+		self._widgets.append(current_row)
 
-		button = tk.Button(self, text ="Pause", command= lambda: self.display_results("SJF"))
-		button.grid(row=rows + 7, column=3, columnspan=3, sticky="nsew", padx=0.5, pady=0.5)
-		current_row.append(button)
+		# current_row = []
+		# button = tk.Button(self, text ="First Fit", command= lambda: self.set_algo_type("F"))
+		# button.grid(row=rows + 8, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
+		# current_row.append(button)
+
+		# button = tk.Button(self, text ="Best Fit", command= lambda: self.set_algo_type("B"))
+		# button.grid(row=rows + 8, column=2, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
+		# current_row.append(button)
+
+		# button = tk.Button(self, text ="Worst Fit", command=lambda: self.set_algo_type("W"))
+		# button.grid(row=rows + 8, column=4, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
+		# current_row.append(button)
+
+		# current_row = []
+		# button = tk.Button(self, text ="Reset", command= self.reset_simulation)
+		# button.grid(row=rows + 8, columnspan=3, sticky="nsew", padx=0.5, pady=0.5)
+		# current_row.append(button)
+
+		# button = tk.Button(self, text ="Stop", command= self.stop_simulation)
+		# button.grid(row=rows + 8, column=3, columnspan=3, sticky="nsew", padx=0.5, pady=0.5)
+		# current_row.append(button)
 
 		for column in range(columns):
 			self.grid_columnconfigure(column, weight=1)
@@ -139,6 +347,27 @@ class Table(tk.Frame):
 			value = widget.cget("text") + "\n" + value
 		widget.configure(text=value, foreground=foreground, background=background)
 
+	def set_algo_type(self, algo_type="F"):
+		self.parent.algo_type = algo_type
+		# self.parent.reset()
+		self.parent.run()
 
-main = Main()
+	def stop_simulation(self):
+		self.parent.stop()
+
+	def reset_simulation(self):
+		self.parent.reset()
+
+raw = raw_input("Type of Algorithm: \n 1. First-Fit \n 2. Best-Fit \n 3. Worst-Fit\n")
+algo_type = "F"
+if raw == 1:
+	algo_type = "F"
+elif raw == 2:
+	algo_type = "B"
+elif raw == 3:
+	algo_type = "W"
+
+main = Main(algo_type=algo_type)
+main.after(1000, main.run)
 main.mainloop()
+
