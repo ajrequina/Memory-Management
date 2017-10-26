@@ -9,8 +9,10 @@ from sub.memory import Memory
 from sub.test import TestMain
 
 class Main(tk.Tk):
-	def __init__(self, algo_type="F"):
+	def __init__(self, algo_type="F", header_idx=1):
 		tk.Tk.__init__(self)
+		headers = ["First-Fit Algorithm", "Best-Fit Algorithm", "Worst-Fit Algorithm"]
+		self.title(headers[header_idx - 1])
 		self.table = Table(self, rows=26, columns=6)
 		self.table.pack(side="top", fill="x")
 		self.memories  = []
@@ -120,25 +122,27 @@ class Main(tk.Tk):
 		self.calculate_queue_length()
 
 	def calculate_throughput(self):
-		if self.finished:
+		if len(self.qualified_jobs) and self.finished:
 			self.throughput += (self.finished / float(self.counter))
 			self.count_throughput += 1
 
 	def calculate_storage(self):
-		self.storage = self.free_list_size / float(len(self.memories))
-		self.total_storage += self.storage
-		self.count_storage += 1
+		if len(self.qualified_jobs):
+			self.storage = self.free_list_size / float(len(self.memories))
+			self.total_storage += self.storage
+			self.count_storage += 1
 
 	def calculate_queue_length(self):
-		self.queue_length = self.qualified_jobs_count - len(self.allocated)
-		self.total_queue_length += self.queue_length
-		self.count_queue_length += 1
+		if len(self.qualified_jobs):
+			self.queue_length = self.qualified_jobs_count - len(self.allocated)
+			self.total_queue_length += self.queue_length
+			self.count_queue_length += 1
 
 	def display_throughput(self):
 		if self.finished:
 			throughput = self.throughput / float(self.count_throughput)
 
-			self.table.set(26, 0, "Throughput: " + str(throughput))
+			self.table.set(26, 0, "Throughput: " + str(throughput) + " finished job/s per ms")
 
 	def display_storage(self):
 		used = 1 - self.storage
@@ -146,13 +150,13 @@ class Main(tk.Tk):
 		ave = self.total_storage / float(self.count_storage)
 		ave_used = 1 - ave
 		ave_unused = ave
-		self.table.set(27, 0, "Actual Storage Util: " + str(used) + " / " + str(unused))
-		self.table.set(28, 0, "Ave Storage Util: " + str(ave_used) + " / " + str(ave_unused))
+		self.table.set(27, 0, "Actual Storage Util (used/unused): " + str(used) + " / " + str(unused))
+		self.table.set(28, 0, "Ave Storage Util (used/unused): " + str(ave_used) + " / " + str(ave_unused))
 
 	def display_queue_length(self):
 		ave = self.total_queue_length / float(self.count_queue_length)
-		self.table.set(29, 0, "Actual Waiting Queue Length: " + str(self.queue_length))
-		self.table.set(30, 0, "Ave Waiting Queue Length: " + str(ave))
+		self.table.set(29, 0, "Actual Waiting Queue Length: " + str(self.queue_length) + " jobs")
+		self.table.set(30, 0, "Ave Waiting Queue Length: " + str(ave) + " jobs")
 
 	def display_ave_waiting(self):
 		total = 0
@@ -162,10 +166,10 @@ class Main(tk.Tk):
 				count += 1
 				total += job.waiting_time_value()
 
-		self.table.set(31, 0, "Ave Waiting Time: " + str(total / float(count)))
+		self.table.set(31, 0, "Ave Waiting Time: " + str(total / float(count)) + " ms")
 
 	def display_ave_frag(self):
-		self.table.set(32, 0, "Ave Internal Fragmentation: " + str(self.total_frag / float(self.qualified_jobs_count)))
+		self.table.set(32, 0, "Ave Internal Fragmentation: " + str(self.total_frag / float(self.qualified_jobs_count)) + "K")
 
 	def reset(self):
 		self.free_list = []
@@ -189,7 +193,6 @@ class Main(tk.Tk):
 			self.update_display()
 			self.counter += 1
 			self.runner = self.after(1000, self.run)
-
 
 	def sort_memory(self):
 		if self.algo_type == "F":
@@ -316,27 +319,15 @@ class Table(tk.Frame):
 		current_row.append(label)
 		self._widgets.append(current_row)
 
-		# current_row = []
-		# button = tk.Button(self, text ="First Fit", command= lambda: self.set_algo_type("F"))
-		# button.grid(row=rows + 8, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
-		# current_row.append(button)
+		current_row = []
+		button = tk.Button(self, text ="Start", command= self.start_simulation)
+		button.grid(row=rows + 8, columnspan=6, sticky="nsew", padx=0.5, pady=0.5)
+		current_row.append(button)
 
-		# button = tk.Button(self, text ="Best Fit", command= lambda: self.set_algo_type("B"))
-		# button.grid(row=rows + 8, column=2, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
-		# current_row.append(button)
-
-		# button = tk.Button(self, text ="Worst Fit", command=lambda: self.set_algo_type("W"))
-		# button.grid(row=rows + 8, column=4, columnspan=2, sticky="nsew", padx=0.5, pady=0.5)
-		# current_row.append(button)
-
-		# current_row = []
-		# button = tk.Button(self, text ="Reset", command= self.reset_simulation)
-		# button.grid(row=rows + 8, columnspan=3, sticky="nsew", padx=0.5, pady=0.5)
-		# current_row.append(button)
-
-		# button = tk.Button(self, text ="Stop", command= self.stop_simulation)
-		# button.grid(row=rows + 8, column=3, columnspan=3, sticky="nsew", padx=0.5, pady=0.5)
-		# current_row.append(button)
+		current_row = []
+		button = tk.Button(self, text ="Stop", command= self.stop_simulation)
+		button.grid(row=rows + 9, column=0, columnspan=6, sticky="nsew", padx=0.5, pady=0.5)
+		current_row.append(button)
 
 		for column in range(columns):
 			self.grid_columnconfigure(column, weight=1)
@@ -349,25 +340,21 @@ class Table(tk.Frame):
 
 	def set_algo_type(self, algo_type="F"):
 		self.parent.algo_type = algo_type
-		# self.parent.reset()
-		self.parent.run()
 
 	def stop_simulation(self):
-		self.parent.stop()
+		self.parent.destroy()
 
-	def reset_simulation(self):
-		self.parent.reset()
+	def start_simulation(self):
+		self.parent.run()
 
 raw = raw_input("Type of Algorithm: \n 1. First-Fit \n 2. Best-Fit \n 3. Worst-Fit\n")
 algo_type = "F"
-if raw == 1:
+if raw == "1":
 	algo_type = "F"
-elif raw == 2:
+elif raw == "2":
 	algo_type = "B"
-elif raw == 3:
+elif raw == "3":
 	algo_type = "W"
 
-main = Main(algo_type=algo_type)
-main.after(1000, main.run)
+main = Main(algo_type=algo_type, header_idx=int(raw))
 main.mainloop()
-
