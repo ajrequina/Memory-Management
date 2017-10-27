@@ -134,7 +134,7 @@ class Main(tk.Tk):
 
 	def calculate_queue_length(self):
 		if len(self.qualified_jobs):
-			self.queue_length = self.qualified_jobs_count - len(self.allocated)
+			self.queue_length = self.qualified_jobs_count - len(self.allocated) + 1
 			self.total_queue_length += self.queue_length
 			self.count_queue_length += 1
 
@@ -162,7 +162,7 @@ class Main(tk.Tk):
 		total = 0
 		count = 0
 		for job in self.jobs:
-			if job.waiting_time_value >= 0:
+			if job.waiting_time_value() >= 0:
 				count += 1
 				total += job.waiting_time_value()
 
