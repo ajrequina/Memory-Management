@@ -123,12 +123,12 @@ class Main(tk.Tk):
 
 	def calculate_throughput(self):
 		if len(self.qualified_jobs) and self.finished:
-			self.throughput += (self.finished / float(self.counter))
+			self.throughput += (len(self.allocated) / float(self.counter))
 			self.count_throughput += 1
 
 	def calculate_storage(self):
 		if len(self.qualified_jobs):
-			self.storage = self.free_list_size / float(len(self.memories))
+			self.storage = len(self.free_list) / float(len(self.memories))
 			self.total_storage += self.storage
 			self.count_storage += 1
 
@@ -171,6 +171,13 @@ class Main(tk.Tk):
 	def display_ave_frag(self):
 		self.table.set(32, 0, "Ave Internal Fragmentation: " + str(self.total_frag / float(self.qualified_jobs_count)) + "K")
 
+	def is_all_done(self):
+		for job in self.jobs:
+			if job.waiting_time_value() != -1:
+				if job.counter > 0:
+					return False
+		return True
+
 	def reset(self):
 		self.free_list = []
 		for job in self.jobs:
@@ -189,9 +196,22 @@ class Main(tk.Tk):
 			self.check_memory()
 			self.sort_memory()
 			self.allocate_memory()
-			self.perform_evaluations()
+			if not self.is_all_done():
+				self.perform_evaluations()
 			self.update_display()
-			self.counter += 1
+			# for job in self.jobs:
+			# 	print(" -> JOB #: " + str(job.id))
+			# 	if job.memory:
+			# 		print(" AT MEMORY: " + str(job.memory.id))
+			# 	else:
+			# 		print(" NOT ALLOCATED")
+			# 	print(" TIME: " + str(job.counter))
+			# print("\n\n\n")
+			if not self.is_all_done():
+				print("Incrementing..")
+				self.counter += 1
+				print(self.counter)
+
 			self.runner = self.after(1000, self.run)
 
 	def sort_memory(self):
@@ -205,13 +225,16 @@ class Main(tk.Tk):
 	def check_jobs(self):
 		for job in self.qualified_jobs:
 			if job.memory:
+				if job.counter == 0:
+					self.qualified_jobs.remove(job)
+					job.memory = None
+					self.finished += 1
+					continue
 				if job.counter > 0:
 					job.decrease_time()
-				elif job.counter == 0:
-					self.finished += 1
-					self.qualified_jobs.remove(job)
 			else:
-				job.wait()
+				if job.counter > 0:
+					job.wait()
 
 	def check_memory(self):
 		for memory in self.memories:
